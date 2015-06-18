@@ -59,11 +59,37 @@ struct socketStateStruct
 
 unsigned long mainTimer = 0;
 
+byte socketOff[8] = {
+  0b00000,
+  0b01110,
+  0b10001,
+  0b11011,
+  0b10001,
+  0b01110,
+  0b00000,
+  0b00000
+};
+
+byte socketOn[8] = {
+  0b00000,
+  0b01110,
+  0b11111,
+  0b10101,
+  0b11111,
+  0b01110,
+  0b00000,
+  0b00000
+};
+
 //PROGRAM/////////////////////////////////////////////////////
 
 void setup() {
   Serial.begin(9600);
   simpleui.write("hydrovasall", "by Kana");
+
+  // create a new characters
+  lcd.createChar(1, socketOff);
+  lcd.createChar(2, socketOn);
 
   readSettingsFromEeprom();
 
@@ -133,21 +159,46 @@ void runIntervals() {
 }
 
 void showStatus() {
+  // display socket symbols and seconds that indicate the status
   simpleui.clear();
+  String statusStr;
+  char statusText[6];
+  
   for (int i = 0; i < 4; i++) {
-      char a[6];
-      String str1;
-      str1 = String(socketState[i].intervalCounter);
-      str1.toCharArray(a, 6);
-
-      char b[6];
-      String str2;
-      str2 = String(socketState[i].onCounter);
-      str2.toCharArray(b, 6);
-
-      simpleui.overwrite(i / 2, 0 + (i % 2) * 8, a);
-      simpleui.overwrite(i / 2, 3 + (i % 2) * 8, "/");
-      simpleui.overwrite(i / 2, 4 + (i % 2) * 8, b);
+      lcd.setCursor(0 + (i % 2) * 8, i / 2);
+      if(socketState[i].intervalCounter <= 0) {
+        lcd.write(2);
+        
+        if(socketState[i].onCounter >= 3600) {
+          statusStr = String(socketState[i].onCounter/3600);
+          statusStr.concat("h");
+        } else if(socketState[i].onCounter >= 60) {
+          statusStr = String(socketState[i].onCounter/60);
+          statusStr.concat("m");
+        } else {
+          statusStr = String(socketState[i].onCounter);
+          statusStr.concat("s");
+        }
+        statusStr.toCharArray(statusText, 6);
+        
+        simpleui.overwrite(i / 2, 2 + (i % 2) * 8, statusText);
+      } else {
+        lcd.write(1);
+        
+        if(socketState[i].intervalCounter >= 3600) {
+          statusStr = String(socketState[i].intervalCounter/3600);
+          statusStr.concat("h");
+        } else if(socketState[i].intervalCounter >= 60) {
+          statusStr = String(socketState[i].intervalCounter/60);
+          statusStr.concat("m");
+        } else {
+          statusStr = String(socketState[i].intervalCounter);
+          statusStr.concat("s");
+        }
+        statusStr.toCharArray(statusText, 6);
+        
+        simpleui.overwrite(i / 2, 2 + (i % 2) * 8, statusText);
+      }
   }
 }
 
