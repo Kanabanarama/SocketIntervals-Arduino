@@ -12,7 +12,7 @@
 //INCLUDES//////////////////////////////////////////////////
 
 #include <EEPROM.h>
-#include "EEPROMAnything.h"
+#include "EEPROMTemplate.h"
 #include <LiquidCrystal.h>
 #include <SimpleUI16x2.h>
 
@@ -45,7 +45,9 @@ uint8_t getButton() {
 
 //DEFINITIONS/////////////////////////////////////////////////
 
-int relayPins[4] = {3, 2, 1, 0};
+int relayPins[4] = {2, 3, 11, 12};
+int statusLedPins[4] = {A2, A3, A4, A5};
+int manualOnPin = A1;
 
 struct socketSettingStruct
 {
@@ -84,7 +86,12 @@ byte socketOn[8] = {
 //PROGRAM/////////////////////////////////////////////////////
 
 void setup() {
-  Serial.begin(9600);
+  // attention: serial begin takes over d0 and d1 pins!
+  //Serial.begin(9600);
+
+  // this is a workaround for SainSmart lcd shields which short pin10 to ground and slowly fry the AVR...
+  //pinMode(10, INPUT);
+
   simpleui.write("hydrovasall", "by Kana");
 
   // create a new characters
@@ -99,11 +106,16 @@ void setup() {
     digitalWrite(relayPins[i], HIGH);
     // set the temporary counters
     resetSocketCounter(i);
+    
+    // set status led pins to output
+    pinMode(statusLedPins[i], OUTPUT);
+    analogWrite(statusLedPins[i], 0);
   }
+
+  pinMode(manualOnPin, INPUT_PULLUP);
 }
 
 void loop() {
-  // put your main code here, to run repeatedly:
   if (getButton() == BUTTON_SELECT) {
     uint16_t i;
     char* mainMenu[] = {"Run", "Configure", 0}; // last entry has to be 0
@@ -123,14 +135,31 @@ void loop() {
 
 void readSettingsFromEeprom() {
   for (int i = 0; i < 4; i++) {
-    EEPROM_readAnything(i * sizeof(socketSettingStruct), socketSettings[i]);
+    EEPROM_readStuff(i * sizeof(socketSettingStruct), socketSettings[i]);
   }
 }
 
 void writeSettingsToEeprom(int socketNr, int intervalTime, int onTime) {
   socketSettings[socketNr].intervalTime = intervalTime;
   socketSettings[socketNr].onTime = onTime;
-  EEPROM_writeAnything(socketNr * sizeof(socketSettingStruct), socketSettings[socketNr]);
+  EEPROM_writeStuff(socketNr * sizeof(socketSettingStruct), socketSettings[socketNr]);
+}
+
+int readManualOnButtons() {
+  int b,c = 0;
+  c = analogRead(manualOnPin); // get the analog value  
+  if (c>1000) {
+    b=255; // nothing pressed
+  } else if (c<400 && c>370) {
+    b=0; // button 1 pressed
+  } else if (c>280 && c<310) {
+    b=1; // button 2 pressed
+  } else if (c>150 && c<180) {
+    b=2; // button 3 pressed
+  } else if (c<20) {
+    b=3; // button 4 pressed
+  }
+  return b;
 }
 
 void runIntervals() {
@@ -140,15 +169,16 @@ void runIntervals() {
       if (socketState[i].intervalCounter > 0) {
         socketState[i].intervalCounter--;
       }
-
       if (socketState[i].intervalCounter <= 0) {
         socketState[i].onCounter--;
         if (socketState[i].onCounter < 0) {
           digitalWrite(relayPins[i], HIGH);
+          analogWrite(statusLedPins[i], 0);
           socketState[i].intervalCounter = socketSettings[i].intervalTime;
           socketState[i].onCounter = socketSettings[i].onTime;
         } else {
           digitalWrite(relayPins[i], LOW);
+          analogWrite(statusLedPins[i], 255);
         }
       }
     }
@@ -168,38 +198,31 @@ void showStatus() {
       lcd.setCursor(0 + (i % 2) * 8, i / 2);
       if(socketState[i].intervalCounter <= 0) {
         lcd.write(2);
-        
-        if(socketState[i].onCounter >= 3600) {
-          statusStr = String(socketState[i].onCounter/3600);
-          statusStr.concat("h");
-        } else if(socketState[i].onCounter >= 60) {
-          statusStr = String(socketState[i].onCounter/60);
-          statusStr.concat("m");
-        } else {
-          statusStr = String(socketState[i].onCounter);
-          statusStr.concat("s");
-        }
-        statusStr.toCharArray(statusText, 6);
-        
+        toReadableTime(socketState[i].onCounter, statusText);
         simpleui.overwrite(i / 2, 2 + (i % 2) * 8, statusText);
       } else {
-        lcd.write(1);
-        
-        if(socketState[i].intervalCounter >= 3600) {
-          statusStr = String(socketState[i].intervalCounter/3600);
-          statusStr.concat("h");
-        } else if(socketState[i].intervalCounter >= 60) {
-          statusStr = String(socketState[i].intervalCounter/60);
-          statusStr.concat("m");
-        } else {
-          statusStr = String(socketState[i].intervalCounter);
-          statusStr.concat("s");
-        }
-        statusStr.toCharArray(statusText, 6);
-        
+        lcd.write(1);        
+        toReadableTime(socketState[i].intervalCounter, statusText);
         simpleui.overwrite(i / 2, 2 + (i % 2) * 8, statusText);
       }
   }
+}
+
+void toReadableTime(int seconds, char* status) {
+  String statusStr;
+  char statusText[6];
+  
+  if(seconds >= 3600) {
+    statusStr = String(seconds/3600);
+    statusStr.concat("h");
+  } else if(seconds >= 60) {
+    statusStr = String(seconds/60);
+    statusStr.concat("m");
+  } else {
+    statusStr = String(seconds);
+    statusStr.concat("s");
+  }
+  statusStr.toCharArray(status, 6);
 }
 
 void resetSocketCounter(int socketNr) {
