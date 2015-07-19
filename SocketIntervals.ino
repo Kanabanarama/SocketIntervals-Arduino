@@ -146,7 +146,7 @@ void writeSettingsToEeprom(int socketNr, int intervalTime, int onTime) {
 }
 
 int readManualOnButtons() {
-  int b,c = 0;
+  int b = 255, c = 0;
   c = analogRead(manualOnPin); // get the analog value  
   if (c>1000) {
     b=255; // nothing pressed
@@ -164,14 +164,17 @@ int readManualOnButtons() {
 
 int relayState[4] = {0, 0, 0, 0};
 int relayStateManualOverride[4] = {0, 0, 0, 0};
-int prohibitOverride = 0;
+unsigned long lastOverride = 0;
 
 void runIntervals() {
   while (getButton() != BUTTON_SELECT) {
     for (int i = 0; i < 4; i++) {
-      if(!prohibitOverride && (readManualOnButtons() == i)) {
-        relayStateManualOverride[i] = !relayStateManualOverride[i];
-        prohibitOverride = 1;
+      if(((lastOverride == 0) || (millis() - lastOverride >= 250UL)) && (readManualOnButtons() == i)) {
+        if((socketSettings[i].intervalTime > 0) || (socketSettings[i].onTime == 0)) {
+          relayStateManualOverride[i] = !relayStateManualOverride[i];
+          changeSocketState(i, relayStateManualOverride[i]);
+        }
+        lastOverride = millis();
       }
     }
     
@@ -183,27 +186,38 @@ void runIntervals() {
       if (socketState[i].intervalCounter <= 0) {
         socketState[i].onCounter--;
         if (socketState[i].onCounter < 0) {
-          relayState[i] = 0;
+          if(socketSettings[i].intervalTime > 0) {
+            relayState[i] = 0;
+          }
           socketState[i].intervalCounter = socketSettings[i].intervalTime;
           socketState[i].onCounter = socketSettings[i].onTime;
         } else {
-          relayState[i] = 1;
+          if((socketSettings[i].onTime > 0) || (socketSettings[i].intervalTime == 0)) {
+            relayState[i] = 1;
+          }
         }
       }
       if((relayState[i] == 0) && (relayStateManualOverride[i] == 0)) {
-        digitalWrite(relayPins[i], HIGH);
-        analogWrite(statusLedPins[i], 0);
+        changeSocketState(i, 0);
       }
       if((relayState[i] == 1) || (relayStateManualOverride[i] == 1)) {
-        digitalWrite(relayPins[i], LOW);
-        analogWrite(statusLedPins[i], 255);
-      }
+        changeSocketState(i, 1);
+      }      
     }
 
-    prohibitOverride = 0;
     showStatus();
     mainTimer = millis();
     }
+  }
+}
+
+void changeSocketState(int iSocketNum, int iState) {
+  if(iState == 1) {
+    digitalWrite(relayPins[iSocketNum], LOW);
+    analogWrite(statusLedPins[iSocketNum], 255);
+  } else {
+    digitalWrite(relayPins[iSocketNum], HIGH);
+    analogWrite(statusLedPins[iSocketNum], 0);
   }
 }
 
@@ -215,6 +229,20 @@ void showStatus() {
   
   for (int i = 0; i < 4; i++) {
       lcd.setCursor(0 + (i % 2) * 8, i / 2);
+      
+      if(socketSettings[i].onTime == 0) {
+        lcd.write(1);
+        //toReadableTime(socketState[i].onCounter, statusText);
+        simpleui.overwrite(i / 2, 2 + (i % 2) * 8, "off");
+        continue;
+      }
+      if(socketSettings[i].intervalTime == 0) {
+        lcd.write(2);
+        //toReadableTime(socketState[i].onCounter, statusText);
+        simpleui.overwrite(i / 2, 2 + (i % 2) * 8, "on");
+        continue;
+      }
+      
       if(socketState[i].intervalCounter <= 0) {
         lcd.write(2);
         toReadableTime(socketState[i].onCounter, statusText);
