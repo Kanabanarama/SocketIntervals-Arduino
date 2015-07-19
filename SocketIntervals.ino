@@ -90,7 +90,7 @@ void setup() {
   //Serial.begin(9600);
 
   // this is a workaround for SainSmart lcd shields which short pin10 to ground and slowly fry the AVR...
-  //pinMode(10, INPUT);
+  pinMode(10, INPUT);
 
   simpleui.write("hydrovasall", "by Kana");
 
@@ -150,20 +150,31 @@ int readManualOnButtons() {
   c = analogRead(manualOnPin); // get the analog value  
   if (c>1000) {
     b=255; // nothing pressed
-  } else if (c<400 && c>370) {
-    b=0; // button 1 pressed
-  } else if (c>280 && c<310) {
-    b=1; // button 2 pressed
-  } else if (c>150 && c<180) {
-    b=2; // button 3 pressed
-  } else if (c<20) {
+  } else if (c>150 && c<200) {
     b=3; // button 4 pressed
+  } else if (c>100 && c<150) {
+    b=2; // button 3 pressed
+  } else if (c>50 && c<100) {
+    b=1; // button 2 pressed
+  } else if (c<50) {
+    b=0; // button 1 pressed
   }
   return b;
 }
 
+int relayState[4] = {0, 0, 0, 0};
+int relayStateManualOverride[4] = {0, 0, 0, 0};
+int prohibitOverride = 0;
+
 void runIntervals() {
   while (getButton() != BUTTON_SELECT) {
+    for (int i = 0; i < 4; i++) {
+      if(!prohibitOverride && (readManualOnButtons() == i)) {
+        relayStateManualOverride[i] = !relayStateManualOverride[i];
+        prohibitOverride = 1;
+      }
+    }
+    
     if ((millis() - mainTimer) >= 1000UL) {
     for (int i = 0; i < 4; i++) {
       if (socketState[i].intervalCounter > 0) {
@@ -172,16 +183,24 @@ void runIntervals() {
       if (socketState[i].intervalCounter <= 0) {
         socketState[i].onCounter--;
         if (socketState[i].onCounter < 0) {
-          digitalWrite(relayPins[i], HIGH);
-          analogWrite(statusLedPins[i], 0);
+          relayState[i] = 0;
           socketState[i].intervalCounter = socketSettings[i].intervalTime;
           socketState[i].onCounter = socketSettings[i].onTime;
         } else {
-          digitalWrite(relayPins[i], LOW);
-          analogWrite(statusLedPins[i], 255);
+          relayState[i] = 1;
         }
       }
+      if((relayState[i] == 0) && (relayStateManualOverride[i] == 0)) {
+        digitalWrite(relayPins[i], HIGH);
+        analogWrite(statusLedPins[i], 0);
+      }
+      if((relayState[i] == 1) || (relayStateManualOverride[i] == 1)) {
+        digitalWrite(relayPins[i], LOW);
+        analogWrite(statusLedPins[i], 255);
+      }
     }
+
+    prohibitOverride = 0;
     showStatus();
     mainTimer = millis();
     }
